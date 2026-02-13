@@ -2,10 +2,14 @@ import axios from 'axios';
 
 const API_URL = 'http://localhost:8000/api';
 
-export const getRoute = async (start, end) => {
+export const getRoute = async (start, end, type = 'car') => {
     // start, end are [lon, lat]
     try {
-        const response = await axios.post(`${API_URL}/route`, { start, end });
+        const response = await axios.post(`${API_URL}/route`, {
+            start,
+            end,
+            vehicle_type: type
+        });
         return response.data;
     } catch (error) {
         console.error("Error fetching route:", error);

@@ -1,0 +1,26 @@
+Feature Category,Google Maps Feature,OSM / Open Source Equivalent,API / Library Used,Offline Mode Available? (Self-Hosted)
+Core Maps,Interactive Map Display (gestures/markers),OpenLayers / Leaflet / MapLibre,OpenLayers / Leaflet,Yes
+Core Maps,Multiple Map Types (Road/Satellite/Terrain),OSM (Standard) / Esri (Imagery) / OpenTopoMap,TileLayer (WMS/XYZ),Yes (Standard/Topo)
+Core Maps,Real-time Traffic Layer,No Direct Equivalent (requires 3rd party like TomTom),N/A,No
+Core Maps,3D Buildings Display (WebGL),OSM Buildings / MapLibre GL JS,MapLibre / OSMBuildings,Yes
+Core Maps,Marker Clustering,OpenLayers `ol/source/Cluster`,Leaflet.markercluster,Yes
+Core Maps,Static Map Images (no-JS),MapProxy / StaticMapLite,MapProxy,Yes
+Search & Places,Places Autocomplete / Search,Nominatim / Photon / Pelias,Nominatim / Pelias / Photon,Yes
+Search & Places,Forward/Reverse Geocoding,Nominatim,Nominatim (Docker),Yes
+Search & Places,Detailed Place Info (Ratings/Photos),Overpass API (Data) / No direct Review API,Overpass Turbo / Custom DB,Yes (Data only)
+Routing,Optimal Routes (Drive/Walk/Bike/Transit),OSRM / Valhalla / GraphHopper,OSRM / Open Route Service,Yes
+Routing,Traffic-Aware Routing,OpenRouteService (limited) / Mostly not available,ORS / GraphHopper,Partial (with local traffic feeds)
+Routing,Waypoints & Alternative Routes,OSRM / Valhalla,OSRM / Valhalla,Yes
+Routing,Distance Matrix (Many-to-Many),OSRM Table API,OSRM,Yes
+Routing,Snap to Road (Map Matching),OSRM Match API,OSRM,Yes
+Routing,VRP Optimization (TSP/Capacity/Windows),VROOM / Jsprit (Java),VROOM (on top of OSRM/Valhalla),Yes
+Fleet & Tracking,End-customer tracking / ETA streaming,Custom Backend (Java/Python/FastAPI),FastAPI + WebSockets + Redis,Yes
+Fleet & Tracking,Fleet Dashboard / Trip Orchestration,Traccar (Open Source Fleet Platform),Traccar / Custom OpenLayers UI,Yes
+3D & Visuals,Photorealistic 3D Maps / Street View,Mapillary (Imagery) / OpenStreetMap 3D (F4 Map),Mapillary API / OSM2World,No (Imagery) / Yes (Geometry)
+Advanced,AR Support (precise positioning),Hugin / Custom Mobile AR SDKs,ARCore/ARKit + OSM Data,Yes
+Advanced,Address Validation / Standardization,Libpostal (NLP for addresses),Libpostal / Pelias,Yes
+Data,Upload custom data (CSV/GeoJSON/KML),OpenLayers `ol/format` / GeoServer,OpenLayers / GeoServer,Yes
+Data,Elevation Data,OpenTopography / SRTM Tiles,Valhalla (Elevation) / GDAL,Yes
+Data,Air Quality / Weather / Pollen,OpenWeatherMap / Waqi.info (limited free),API Integration,No
+Unified Build,Web Components / React Wrapper,OpenLayers React (rl-openlayers) / MapLibre hooks,MapLibre-React / OpenLayers-React,Yes
+DevOps,Cloud Styling / Map IDs,GeoServer Styles (SLD) / Maputnik (GL Styles),GeoServer / Maputnik,Yes

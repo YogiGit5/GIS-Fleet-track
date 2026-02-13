@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="48" height="48">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="2" dy="2" result="offsetblur"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)" transform="rotate(90, 256, 256)">
+    <!-- Body -->
+    <rect x="150" y="80" width="212" height="350" rx="40" ry="40" fill="#2ecc71" stroke="white" stroke-width="4"/>
+    <!-- Windshield -->
+    <path d="M170 140 h172 a20 20 0 0 1 0 40 h-172 a20 20 0 0 1 0 -40" fill="#2c3e50"/>
+    <!-- Rear Window -->
+    <path d="M170 340 h172 a20 20 0 0 0 0 40 h-172 a20 20 0 0 0 0 -40" fill="#2c3e50"/>
+    <!-- Roof -->
+    <rect x="170" y="190" width="172" height="140" fill="#27ae60"/>
+  </g>
+</svg>

@@ -25,18 +25,30 @@ function App() {
     setPoints(newPoints);
 
     if (newPoints.length === 2) {
-      try {
-        const data = await getRoute(newPoints[0], newPoints[1]);
-        setRoute(data.geometry);
-        setRouteInfo({
-          distance: (data.distance / 1000).toFixed(2) + ' km',
-          duration: (data.duration / 60).toFixed(0) + ' min'
-        });
-        console.log("Route info set:", data);
-      } catch (err) {
-        console.error("Route Error:", err);
-        alert("Failed to create route");
-      }
+      fetchRoute(newPoints[0], newPoints[1], vehicleType);
+    }
+  };
+
+  const fetchRoute = async (start, end, type) => {
+    try {
+      const data = await getRoute(start, end, type);
+      setRoute(data.geometry);
+      setRouteInfo({
+        distance: (data.distance / 1000).toFixed(2) + ' km',
+        duration: (data.duration / 60).toFixed(0) + ' min'
+      });
+      console.log("Route info set:", data);
+    } catch (err) {
+      console.error("Route Error:", err);
+      alert("Failed to create route");
+    }
+  };
+
+  const handleTypeChange = (e) => {
+    const newType = e.target.value;
+    setVehicleType(newType);
+    if (points.length === 2) {
+      fetchRoute(points[0], points[1], newType);
     }
   };
 
@@ -96,12 +108,13 @@ function App() {
               <label style={{ display: 'block', marginBottom: '5px' }}>Vehicle Type:</label>
               <select
                 value={vehicleType}
-                onChange={(e) => setVehicleType(e.target.value)}
+                onChange={handleTypeChange}
                 style={{ width: '100%', padding: '8px' }}
                 disabled={!!vehicle?.id}
               >
                 <option value="car">Car (100km/h)</option>
                 <option value="truck">Truck (60km/h)</option>
+                <option value="container">Long Container (40km/h)</option>
                 <option value="bike">Bike (30km/h)</option>
               </select>
             </div>

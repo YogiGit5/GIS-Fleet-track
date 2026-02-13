@@ -11,46 +11,106 @@
   height: 100vh;
 }
 
-.sidebar {
-  width: 300px;
-  background: #f8f9fa;
-  padding: 20px;
-  box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
 .map-container {
   flex: 1;
   position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.sidebar {
+  width: 320px;
+  background: #ffffff;
+  padding: 24px;
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.08);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  font-family: 'Inter', sans-serif;
+  border-right: 1px solid #eaeaea;
+}
+
+h1 {
+  font-size: 1.5rem;
+  color: #1a1a1a;
+  margin: 0;
+  font-weight: 700;
+}
+
+.instructions {
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #555;
+  border: 1px solid #eee;
 }
 
 .info-card {
   background: white;
-  padding: 15px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f0f0f0;
+  transition: transform 0.2s;
+}
+
+.info-card h3 {
+  margin-top: 0;
+  color: #333;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 10px;
+  margin-bottom: 15px;
 }
 
 .vehicle-card {
-  border-left: 4px solid #3388ff;
+  border-left: 5px solid #3388ff;
+  background: #f0f7ff;
+}
+
+label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background-color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+select:focus {
+  border-color: #3388ff;
+  outline: none;
 }
 
 button {
   width: 100%;
-  margin-top: 10px;
-  padding: 10px;
+  margin-top: 15px;
+  padding: 12px;
   background: #3388ff;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.2s;
+}
+
+button:hover {
+  background: #2266dd;
 }
 
 button:disabled {
   background: #ccc;
+  cursor: not-allowed;
 }
 
 .success {

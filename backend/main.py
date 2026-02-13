@@ -20,23 +20,32 @@ app.add_middleware(
 # In-memory storage for MVP
 vehicles = {}
 
+class VehicleConfig(BaseModel):
+    route_geometry: dict
+    vehicle_type: str = "car"
+
 class RouteRequest(BaseModel):
     start: List[float] # [lon, lat]
     end: List[float]   # [lon, lat]
-
-class VehicleConfig(BaseModel):
-    vehicle_type: str  # "truck", "car", "bike"
-    route_geometry: dict  # GeoJSON LineString
-    
-@app.get("/")
-def read_root():
-    return {"status": "Fleet Track Backend Running"}
+    vehicle_type: str = "car" # Default to car if not provided
 
 @app.post("/api/route")
 def get_route(req: RouteRequest):
-    # Using OSRM public demo API for MVP
-    # In production, this would point to local OSRM or GraphHopper
-    base_url = "http://router.project-osrm.org/route/v1/driving"
+    # Determine OSRM profile
+    profile = "driving"
+    speed_factor = 1.0
+    
+    if req.vehicle_type == "bike":
+        profile = "bike"
+        speed_factor = 1.0 # Bike profile already accounts for speed
+    elif req.vehicle_type == "truck":
+        profile = "driving"
+        speed_factor = 0.7 # Trucks are ~30% slower
+    elif req.vehicle_type == "container":
+        profile = "driving"
+        speed_factor = 0.5 # Heavy containers are ~50% slower
+    
+    base_url = f"http://router.project-osrm.org/route/v1/{profile}"
     coords = f"{req.start[0]},{req.start[1]};{req.end[0]},{req.end[1]}"
     url = f"{base_url}/{coords}?overview=full&geometries=geojson"
     try:
@@ -44,7 +53,13 @@ def get_route(req: RouteRequest):
         data = resp.json()
         if data["code"] != "Ok":
             raise HTTPException(status_code=400, detail="Route not found")
+        
         route = data["routes"][0]
+        
+        # Adjust duration based on vehicle speed factor
+        # OSRM duration is in seconds
+        route["duration"] = route["duration"] / speed_factor
+        
         return {
             "geometry": route["geometry"],
             "distance": route["distance"],
