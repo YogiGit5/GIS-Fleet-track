@@ -39,3 +39,13 @@ export const getVehicleStatus = async (vehicleId) => {
         throw error;
     }
 };
+
+export const reverseGeocode = async (lat, lon) => {
+    try {
+        const response = await axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+        return response.data;
+    } catch (error) {
+        console.error("Error reverse geocoding:", error);
+        throw error;
+    }
+};

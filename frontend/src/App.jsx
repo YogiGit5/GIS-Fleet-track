@@ -1,31 +1,102 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 import MapComponent from './components/MapComponent'
-import { getRoute, spawnVehicle, getVehicleStatus } from './services/api'
+import LocationSearch from './components/LocationSearch'
+import { getRoute, spawnVehicle, getVehicleStatus, reverseGeocode } from './services/api' // Import reverseGeocode
 
 function App() {
   const [points, setPoints] = useState([]); // [start, end]
   const [route, setRoute] = useState(null);
+
   const [routeInfo, setRouteInfo] = useState(null); // { distance, duration }
-  const [vehicle, setVehicle] = useState(null); // { id, position, eta }
+  const [vehicle, setVehicle] = useState(null); // { id, position, eta, bearing }
   const [vehicleType, setVehicleType] = useState('car'); // car, truck, bike
+  const [searchLocation, setSearchLocation] = useState(null); // { lat, lon, display_name }
 
-  const handleMapClick = async (coords) => {
-    let newPoints = [...points];
+  // Calculate bearing between two coordinates [lon, lat]
+  const calculateBearing = (start, end) => {
+    if (!start || !end) return null;
+    const startLat = start[1] * Math.PI / 180;
+    const startLon = start[0] * Math.PI / 180;
+    const endLat = end[1] * Math.PI / 180;
+    const endLon = end[0] * Math.PI / 180;
 
-    if (newPoints.length >= 2) {
-      newPoints = [coords];
-      setRoute(null);
-      setRouteInfo(null);
-      setVehicle(null);
-    } else {
-      newPoints.push(coords);
+    const y = Math.sin(endLon - startLon) * Math.cos(endLat);
+    const x = Math.cos(startLat) * Math.sin(endLat) -
+      Math.sin(startLat) * Math.cos(endLat) * Math.cos(endLon - startLon);
+    const θ = Math.atan2(y, x);
+    return (θ * 180 / Math.PI + 360) % 360; // Degrees 0-360
+  };
+
+
+
+  const [directionsMode, setDirectionsMode] = useState(false);
+  const [fromLocation, setFromLocation] = useState(null);
+  const [toLocation, setToLocation] = useState(null);
+
+  const handleLocationSelect = (location) => {
+    setSearchLocation(location);
+    if (directionsMode) {
+      setToLocation(location);
     }
+  };
 
-    setPoints(newPoints);
+  const toggleDirectionsMode = () => {
+    if (!directionsMode) {
+      if (searchLocation) setToLocation(searchLocation);
+    } else {
+      setFromLocation(null);
+      setToLocation(null);
+    }
+    setDirectionsMode(!directionsMode);
+  };
 
-    if (newPoints.length === 2) {
-      fetchRoute(newPoints[0], newPoints[1], vehicleType);
+  const handleSwap = () => {
+    const temp = fromLocation;
+    setFromLocation(toLocation);
+    setToLocation(temp);
+  };
+
+  const handleSetStart = () => {
+    if (searchLocation) {
+      const coords = [parseFloat(searchLocation.lon), parseFloat(searchLocation.lat)];
+      setPoints(prev => [coords, ...(prev[1] ? [prev[1]] : [])]); // Replace start
+      setRoute(null);
+    }
+  };
+
+  const handleSetEnd = () => {
+    if (searchLocation) {
+      const coords = [parseFloat(searchLocation.lon), parseFloat(searchLocation.lat)];
+      setPoints(prev => [prev[0] || null, coords].filter(Boolean)); // Replace end or add if missing
+      if (points[0]) {
+        fetchRoute(points[0], coords, vehicleType);
+      }
+    }
+  };
+
+  // Modified: Map click now selects location instead of setting route points directly
+  const handleMapClick = async (coords) => {
+    try {
+      // coords are [lon, lat]
+      const data = await reverseGeocode(coords[1], coords[0]);
+
+      const newLocation = {
+        lat: coords[1],
+        lon: coords[0],
+        display_name: data.display_name || `${coords[1].toFixed(5)}, ${coords[0].toFixed(5)}`
+      };
+
+      setSearchLocation(newLocation);
+    } catch (err) {
+      console.error("Failed to select location", err);
+    }
+  };
+
+  const handleDirectionsClick = () => {
+    if (searchLocation) {
+      setToLocation(searchLocation);
+      setDirectionsMode(true);
     }
   };
 
@@ -33,14 +104,52 @@ function App() {
     try {
       const data = await getRoute(start, end, type);
       setRoute(data.geometry);
+
+
       setRouteInfo({
         distance: (data.distance / 1000).toFixed(2) + ' km',
         duration: (data.duration / 60).toFixed(0) + ' min'
       });
-      console.log("Route info set:", data);
     } catch (err) {
       console.error("Route Error:", err);
-      alert("Failed to create route");
+      // alert("Failed to create route");
+    }
+  };
+
+
+
+  const handleMarkerDragEnd = async (type, coords) => {
+    // Coords come as [lon, lat] from OL
+    try {
+      const data = await reverseGeocode(coords[1], coords[0]);
+      const displayName = data.display_name || `Dropped Pin (${type})`;
+
+      if (type === 'start') {
+        const newLoc = { lat: coords[1], lon: coords[0], display_name: displayName };
+        setFromLocation(newLoc);
+
+        if (!directionsMode) {
+          setPoints(prev => [coords, prev[1]].filter(Boolean));
+          if (points[1]) fetchRoute(coords, points[1], vehicleType);
+        }
+
+      } else if (type === 'end') {
+        const newLoc = { lat: coords[1], lon: coords[0], display_name: displayName };
+        setToLocation(newLoc);
+
+        if (!directionsMode) {
+          setPoints(prev => [prev[0], coords].filter(Boolean));
+          if (points[0]) fetchRoute(points[0], coords, vehicleType);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to reverse geocode drag end", e);
+      // Fallback
+      if (type === 'start') {
+        setFromLocation({ lat: coords[1], lon: coords[0], display_name: "Dropped Pin (Start)" });
+      } else {
+        setToLocation({ lat: coords[1], lon: coords[0], display_name: "Dropped Pin (End)" });
+      }
     }
   };
 
@@ -72,6 +181,7 @@ function App() {
           setVehicle(prev => ({
             ...prev,
             position: status.position,
+            bearing: calculateBearing(prev?.position, status.position) || prev?.bearing || 0,
             eta: status.eta ? (status.eta / 60).toFixed(1) + ' min' : '0 min',
             finished: status.finished
           }));
@@ -88,13 +198,27 @@ function App() {
     return () => clearInterval(interval);
   }, [vehicle?.id, vehicle?.finished]);
 
+  // Directions Mode Routing Trigger
+  useEffect(() => {
+    if (directionsMode && fromLocation && toLocation) {
+      const startCoords = [parseFloat(fromLocation.lon), parseFloat(fromLocation.lat)];
+      const endCoords = [parseFloat(toLocation.lon), parseFloat(toLocation.lat)];
+
+      // Update points so map shows markers
+      setPoints([startCoords, endCoords]);
+
+      // Fetch route
+      fetchRoute(startCoords, endCoords, vehicleType);
+    }
+  }, [directionsMode, fromLocation, toLocation, vehicleType]);
+
   return (
     <div className="app-container">
       <div className="sidebar">
         <h1>Fleet Track MVP</h1>
         <div className="instructions">
-          <p>1. Click map to set START</p>
-          <p>2. Click map to set END</p>
+          <p>1. <b>Click map</b> to select location</p>
+          <p>2. Click <b>Directions</b></p>
           <p>3. Select Vehicle & Start</p>
         </div>
 
@@ -135,14 +259,101 @@ function App() {
         )}
       </div>
 
-      <div className="map-container">
+      <div className="map-container" style={{ position: 'relative' }}>
+        <LocationSearch
+          onLocationSelect={handleLocationSelect}
+          selectedLocation={searchLocation}
+          onSetStart={handleSetStart}
+          onSetEnd={handleSetEnd}
+          directionsMode={directionsMode}
+          fromLocation={fromLocation}
+          toLocation={toLocation}
+          onSetFrom={setFromLocation}
+          onSetTo={setToLocation}
+          onSwap={handleSwap}
+        />
+
+        {!directionsMode && (
+          <button
+            onClick={toggleDirectionsMode}
+            style={{
+              position: 'absolute',
+              bottom: '30px',
+              right: '20px',
+              zIndex: 1000,
+              width: '50px',
+              height: '50px',
+              borderRadius: '50%',
+              backgroundColor: '#007bff',
+              color: 'white',
+              border: 'none',
+              boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '24px'
+            }}
+            title="Directions"
+          >
+            ↱
+          </button>
+        )}
+
+        {/* Selected Location Details Card */}
+        {searchLocation && !directionsMode && (
+          <div style={{
+            position: 'absolute',
+            bottom: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+            backgroundColor: 'white',
+            padding: '15px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            width: '300px'
+          }}>
+            <div style={{ fontWeight: 'bold', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {searchLocation.display_name}
+            </div>
+            <div style={{ fontSize: '12px', color: '#666' }}>
+              {parseFloat(searchLocation.lat).toFixed(4)}, {parseFloat(searchLocation.lon).toFixed(4)}
+            </div>
+            <button
+              onClick={handleDirectionsClick}
+              style={{
+                backgroundColor: '#4285F4',
+                color: 'white',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '20px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px'
+              }}
+            >
+              <span style={{ fontSize: '18px' }}>↱</span> Directions
+            </button>
+          </div>
+        )}
+
         <MapComponent
           start={points[0]}
           end={points[1]}
           routeGeometry={route}
           vehiclePosition={vehicle?.position}
+          vehicleBearing={vehicle?.bearing}
           vehicleType={vehicle?.type}
+          searchLocation={searchLocation} // Use same prop to show yellow marker
           onMapClick={handleMapClick}
+          onMarkerDragEnd={handleMarkerDragEnd}
         />
       </div>
     </div>

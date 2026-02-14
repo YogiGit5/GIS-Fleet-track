@@ -36,7 +36,9 @@ public class OsrmService {
         }
 
         String coords = String.format("%f,%f;%f,%f", start.get(0), start.get(1), end.get(0), end.get(1));
-        String url = String.format("%s/route/v1/%s/%s?overview=full&geometries=geojson", osrmBaseUrl, profile, coords);
+        // Request alternatives
+        String url = String.format("%s/route/v1/%s/%s?overview=full&geometries=geojson&alternatives=true", osrmBaseUrl,
+                profile, coords);
 
         try {
             JsonNode root = restClient.get().uri(url).retrieve().body(JsonNode.class);
@@ -50,7 +52,16 @@ public class OsrmService {
             double distance = route.get("distance").asDouble();
             double originalDuration = route.get("duration").asDouble();
 
-            return new RouteResponse(geometry, distance, originalDuration / speedFactor);
+            // Parse alternatives
+            List<Map<String, Object>> alternatives = new java.util.ArrayList<>();
+            if (root.get("routes").size() > 1) {
+                for (int i = 1; i < root.get("routes").size(); i++) {
+                    JsonNode altRoute = root.get("routes").get(i);
+                    alternatives.add(objectMapper.convertValue(altRoute.get("geometry"), Map.class));
+                }
+            }
+
+            return new RouteResponse(geometry, distance, originalDuration / speedFactor, alternatives);
 
         } catch (Exception e) {
             throw new RuntimeException("OSRM Error: " + e.getMessage());
