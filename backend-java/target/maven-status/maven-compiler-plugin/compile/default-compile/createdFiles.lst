@@ -1,4 +1,4 @@
-com\fleettrack\backend\service\VehicleSimulationService$VehicleState.class
+com\fleettrack\backend\controller\FleetController.class
 com\fleettrack\backend\dto\VehicleStatusResponse.class
 com\fleettrack\backend\service\VehicleSimulationService.class
 com\fleettrack\backend\controller\RouteController.class
@@ -7,4 +7,7 @@ com\fleettrack\backend\FleetTrackApplication.class
 com\fleettrack\backend\dto\RouteRequest.class
 com\fleettrack\backend\dto\RouteResponse.class
 com\fleettrack\backend\dto\SpawnRequest.class
+com\fleettrack\backend\config\SecurityConfig.class
 com\fleettrack\backend\controller\SimulationController.class
+com\fleettrack\backend\config\WebSocketConfig.class
+com\fleettrack\backend\service\VehicleSimulationService$VehicleState.class

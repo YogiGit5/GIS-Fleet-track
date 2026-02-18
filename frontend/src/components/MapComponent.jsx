@@ -12,22 +12,27 @@ import { Circle as CircleStyle, Fill, Stroke, Style, Icon } from 'ol/style';
 import { Translate, DragRotate } from 'ol/interaction';
 import { unByKey } from 'ol/Observable';
 import { shiftKeyOnly } from 'ol/events/condition';
+import { reverseGeocode } from '../services/api';
 
-const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBearing, vehicleType, searchLocation, onMapClick, onMarkerDragEnd }) => {
+const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosition, vehicleBearing, vehicleType, searchLocation, onMapClick, onMarkerDragEnd, onVehicleSelect, followVehicleId, onStopFollow, onUserLocationUpdate }) => {
     const mapRef = useRef(null);
     const mapInstance = useRef(null);
     const vectorSource = useRef(new VectorSource());
-    const onMapClickRef = useRef({ onMapClick, onMarkerDragEnd });
+    const onMapClickRef = useRef({ onMapClick, onMarkerDragEnd, onVehicleSelect });
     const translateInteraction = useRef(null);
+    const isFollowingRef = useRef(false); // Use ref for event handlers to avoid stale closures
+
+    // Interpolation State
+    const vehicleStates = useRef({});
+    const animationFrameId = useRef(null);
 
     const [userLocation, setUserLocation] = useState(null);
-    const [isFollowing, setIsFollowing] = useState(false);
     const [rotation, setRotation] = useState(0);
 
     // Keep callback ref updated
     useEffect(() => {
-        onMapClickRef.current = { onMapClick, onMarkerDragEnd };
-    }, [onMapClick, onMarkerDragEnd]);
+        onMapClickRef.current = { onMapClick, onMarkerDragEnd, onVehicleSelect };
+    }, [onMapClick, onMarkerDragEnd, onVehicleSelect]);
 
     // 1. Initialize Map (Run Once)
     useEffect(() => {
@@ -109,16 +114,36 @@ const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBeari
                 target: mapRef.current,
                 layers: [satelliteLayer, osmLayer, vectorLayer],
                 // Default to Mysore/Bangalore area
-                view: new View({ center: fromLonLat([77.5819,12.9792]), zoom: 12 })
+                view: new View({ center: fromLonLat([77.5819, 12.9792]), zoom: 12 })
             });
 
             // Geolocation: Get User Position
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    (position) => {
+                    async (position) => {
                         const { latitude, longitude } = position.coords;
                         const coords = fromLonLat([longitude, latitude]);
                         setUserLocation(coords); // Save for marker
+
+                        // Reverse geocode to get real address
+                        let displayName = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                        try {
+                            const geo = await reverseGeocode(latitude, longitude);
+                            if (geo && geo.display_name) {
+                                displayName = geo.display_name;
+                            }
+                        } catch (e) {
+                            console.warn('Reverse geocode failed, using coordinates:', e);
+                        }
+
+                        // Notify Parent (App.jsx) with real address
+                        if (onUserLocationUpdate) {
+                            onUserLocationUpdate({
+                                lat: latitude,
+                                lon: longitude,
+                                display_name: displayName
+                            });
+                        }
 
                         // Center view on user
                         mapInstance.current.getView().animate({
@@ -151,11 +176,18 @@ const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBeari
 
                 if (feature) {
                     const type = feature.get('type');
+                    console.log("Map Clicked Feature:", type, feature.get('id'));
 
                     if (type === 'route-alt') {
                         const index = feature.get('altIndex');
                         if (onMapClickRef.current.onAlternativeSelect) {
                             onMapClickRef.current.onAlternativeSelect(index);
+                            return; // Stop propagation
+                        }
+                    } else if (type === 'vehicle-fleet') {
+                        const vehicleId = feature.getId(); // Use getId() for internal feature ID
+                        if (onMapClickRef.current.onVehicleSelect) {
+                            onMapClickRef.current.onVehicleSelect(vehicleId);
                             return; // Stop propagation
                         }
                     }
@@ -198,82 +230,242 @@ const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBeari
         }
     }, []);
 
-    // 2. Update Features (React to props)
+    // 2. Update Features (React to props - Fleet & Nav)
     useEffect(() => {
         const source = vectorSource.current;
         if (!source) return;
 
-        source.clear(); // Simple approach: clear and redraw. adequate for <10 features.
+        // --- FLEET MODE (With Interpolation) ---
+        if (activeTab === 'fleet') {
+            if (!fleet) return;
 
-        // Draw User Location Marker first (if exists)
-        if (userLocation) {
-            source.addFeature(new Feature({
-                geometry: new Point(userLocation),
-                type: 'user-location'
-            }));
-        }
+            const now = Date.now();
+            const activeIds = new Set();
 
-        if (start) source.addFeature(new Feature({ geometry: new Point(fromLonLat(start)), type: 'start' }));
-        if (end) source.addFeature(new Feature({ geometry: new Point(fromLonLat(end)), type: 'end' }));
+            fleet.forEach(vehicle => {
+                activeIds.add(vehicle.id);
+                if (!vehicle.position) return;
 
-        if (routeGeometry) {
-            const coords = routeGeometry.coordinates.map(c => fromLonLat(c));
+                const targetCoords = fromLonLat(vehicle.position);
+                let feature = source.getFeatureById(vehicle.id);
+                let isNew = false;
 
-            // 2. Draw Main Route (Split if moving)
-            if (vehiclePosition) {
-                // Split route into Traveled vs Remaining
-                // Find closest point index
-                let minDist = Infinity;
-                let closestIndex = 0;
-                const vPos = fromLonLat(vehiclePosition);
+                if (!feature) {
+                    isNew = true;
+                    feature = new Feature({
+                        geometry: new Point(targetCoords),
+                        type: 'vehicle-fleet',
+                    });
+                    feature.setId(vehicle.id);
+                    source.addFeature(feature);
+                }
 
-                // Optimization: Search only near expected progress if possible, but linear scan is fine for < 1000 points
-                coords.forEach((c, i) => {
-                    const dx = c[0] - vPos[0];
-                    const dy = c[1] - vPos[1];
-                    const dist = dx * dx + dy * dy;
-                    if (dist < minDist) {
-                        minDist = dist;
-                        closestIndex = i;
+                // Update vehicle state for interpolation
+                const currentState = vehicleStates.current[vehicle.id];
+                let startPos = targetCoords;
+
+                if (!isNew && currentState) {
+                    // Use current visual position as start to avoid jumping
+                    const currentGeom = feature.getGeometry().getCoordinates();
+                    startPos = currentGeom;
+                }
+
+                vehicleStates.current[vehicle.id] = {
+                    startPos: startPos,
+                    targetPos: targetCoords,
+                    startTime: now,
+                    duration: 1000 // Assume 1s updates
+                };
+
+                // Update static properties immediately
+                feature.set('status', vehicle.status);
+                feature.set('heading', vehicle.heading);
+                feature.setStyle(createVehicleStyle(vehicle));
+
+                // Handle Halo Creation (Position updated in anim loop)
+                const haloId = `halo-${vehicle.id}`;
+                let haloFeature = source.getFeatureById(haloId);
+
+                if (vehicle.id === followVehicleId) {
+                    if (!haloFeature) {
+                        haloFeature = new Feature({
+                            geometry: new Point(targetCoords),
+                            type: 'halo'
+                        });
+                        haloFeature.setId(haloId);
+                        haloFeature.setStyle(new Style({
+                            image: new CircleStyle({
+                                radius: 30,
+                                stroke: new Stroke({ color: 'rgba(26, 115, 232, 0.6)', width: 2, lineDash: [5, 5] }),
+                                fill: new Fill({ color: 'rgba(26, 115, 232, 0.1)' })
+                            }),
+                            zIndex: 9
+                        }));
+                        source.addFeature(haloFeature);
                     }
-                });
+                } else {
+                    if (haloFeature) source.removeFeature(haloFeature);
+                }
+            });
 
-                // Traveled Path (Start -> Vehicle)
-                const traveledCoords = coords.slice(0, closestIndex + 1);
-                // Add vehicle pos to traveled path to make it connect perfectly?
-                // actually better to just snap to closest index for now to avoid jitter.
-                if (traveledCoords.length > 1) {
-                    source.addFeature(new Feature({ geometry: new LineString(traveledCoords), type: 'route-traveled' }));
+            // Cleanup Stale
+            Object.keys(vehicleStates.current).forEach(id => {
+                if (!activeIds.has(id)) {
+                    delete vehicleStates.current[id];
+                    const f = source.getFeatureById(id);
+                    if (f) source.removeFeature(f);
+                    const h = source.getFeatureById(`halo-${id}`);
+                    if (h) source.removeFeature(h);
+                }
+            });
+
+        } else {
+            // Not Fleet Mode: Clear fleet features
+            source.getFeatures().forEach(f => {
+                const t = f.get('type');
+                if (t === 'vehicle-fleet' || t === 'halo' || t === 'route-fleet') {
+                    source.removeFeature(f);
+                }
+            });
+        }
+
+        // --- NAVIGATION MODE ---
+        if (activeTab === 'route') {
+            // Always clear old start/end/vehicle/route/search features before re-drawing
+            source.getFeatures().forEach(f => {
+                const t = f.get('type');
+                if (t === 'start' || t === 'end' || t === 'search') {
+                    source.removeFeature(f);
+                }
+            });
+
+            // Draw start marker
+            if (start) {
+                source.addFeature(new Feature({ geometry: new Point(fromLonLat(start)), type: 'start' }));
+            }
+            // Draw end marker
+            if (end) {
+                source.addFeature(new Feature({ geometry: new Point(fromLonLat(end)), type: 'end' }));
+            }
+
+            if (routeGeometry) {
+                const coords = routeGeometry.coordinates.map(c => fromLonLat(c));
+
+                // Remove old route features
+                const oldRoutes = source.getFeatures().filter(f => f.get('type') && f.get('type').startsWith('route'));
+                oldRoutes.forEach(f => source.removeFeature(f));
+
+                // Draw Main Route (Split if moving)
+                if (vehiclePosition) {
+                    // Split route into Traveled vs Remaining
+                    let minDist = Infinity;
+                    let closestIndex = 0;
+                    const vPos = fromLonLat(vehiclePosition);
+
+                    coords.forEach((c, i) => {
+                        const dx = c[0] - vPos[0];
+                        const dy = c[1] - vPos[1];
+                        const dist = dx * dx + dy * dy;
+                        if (dist < minDist) {
+                            minDist = dist;
+                            closestIndex = i;
+                        }
+                    });
+
+                    const traveledCoords = coords.slice(0, closestIndex + 1);
+                    if (traveledCoords.length > 1) {
+                        source.addFeature(new Feature({ geometry: new LineString(traveledCoords), type: 'route-traveled' }));
+                    }
+
+                    const remainingCoords = coords.slice(closestIndex);
+                    if (remainingCoords.length > 1) {
+                        source.addFeature(new Feature({ geometry: new LineString(remainingCoords), type: 'route' }));
+                    }
+                } else {
+                    source.addFeature(new Feature({ geometry: new LineString(coords), type: 'route' }));
                 }
 
-                // Remaining Path (Vehicle -> End)
-                const remainingCoords = coords.slice(closestIndex);
-                if (remainingCoords.length > 1) {
-                    source.addFeature(new Feature({ geometry: new LineString(remainingCoords), type: 'route' }));
+                if (mapInstance.current && !vehiclePosition) {
+                    mapInstance.current.getView().fit(source.getExtent(), { padding: [50, 50, 50, 50], maxZoom: 16, duration: 500 });
                 }
-
             } else {
-                // No vehicle, show full route
-                source.addFeature(new Feature({ geometry: new LineString(coords), type: 'route' }));
+                // No route yet — clear any stale route lines
+                source.getFeatures().forEach(f => {
+                    if (f.get('type') && f.get('type').startsWith('route')) source.removeFeature(f);
+                });
             }
 
-            // Auto-zoom when route appears (only if no vehicle yet, or on first load)
-            // If vehicle exists, we might want to follow it? For now keep existing behavior.
-            if (mapInstance.current && !vehiclePosition) {
-                mapInstance.current.getView().fit(source.getExtent(), { padding: [50, 50, 50, 50], maxZoom: 16, duration: 200 });
+            if (vehiclePosition) {
+                let vFeat = source.getFeatures().find(f => f.get('type') === 'vehicle');
+                if (vFeat) {
+                    vFeat.setGeometry(new Point(fromLonLat(vehiclePosition)));
+                    vFeat.set('bearing', vehicleBearing || 0);
+                } else {
+                    source.addFeature(new Feature({
+                        geometry: new Point(fromLonLat(vehiclePosition)),
+                        type: 'vehicle',
+                        vehicleType: vehicleType,
+                        bearing: vehicleBearing || 0
+                    }));
+                }
+            } else {
+                // No vehicle — clear stale vehicle feature
+                const vFeat = source.getFeatures().find(f => f.get('type') === 'vehicle');
+                if (vFeat) source.removeFeature(vFeat);
             }
         }
 
-        if (vehiclePosition) {
-            source.addFeature(new Feature({
-                geometry: new Point(fromLonLat(vehiclePosition)),
-                type: 'vehicle',
-                vehicleType: vehicleType,
-                bearing: vehicleBearing || 0
-            }));
+        // User Location (Always)
+        if (userLocation) {
+            let uF = source.getFeatures().find(f => f.get('type') === 'user-location');
+            if (uF) uF.setGeometry(new Point(userLocation));
+            else source.addFeature(new Feature({ geometry: new Point(userLocation), type: 'user-location' }));
         }
 
-    }, [start, end, routeGeometry, vehiclePosition, vehicleBearing, vehicleType, userLocation]);
+    }, [activeTab, fleet, start, end, routeGeometry, vehiclePosition, vehicleBearing, vehicleType, userLocation, followVehicleId]);
+
+    // 3. Animation Loop
+    useEffect(() => {
+        if (activeTab !== 'fleet') {
+            if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+            return;
+        }
+
+        const animate = () => {
+            const now = Date.now();
+            const source = vectorSource.current;
+            if (!source) return;
+
+            Object.entries(vehicleStates.current).forEach(([id, state]) => {
+                const feature = source.getFeatureById(id);
+                if (!feature) return;
+
+                const elapsed = now - state.startTime;
+                // Clamp t to 1.0 to avoid overshooting
+                const t = Math.min(elapsed / state.duration, 1.0);
+
+                // Lerp: a + (b - a) * t
+                const currentPos = [
+                    state.startPos[0] + (state.targetPos[0] - state.startPos[0]) * t,
+                    state.startPos[1] + (state.targetPos[1] - state.startPos[1]) * t
+                ];
+
+                feature.setGeometry(new Point(currentPos));
+
+                // Update Halo if exists
+                const halo = source.getFeatureById(`halo-${id}`);
+                if (halo) halo.setGeometry(new Point(currentPos));
+            });
+
+            animationFrameId.current = requestAnimationFrame(animate);
+        };
+
+        animate();
+
+        return () => {
+            if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+        };
+    }, [activeTab]);
 
     // 3. Handle Search Location (FlyTo + Marker)
     useEffect(() => {
@@ -325,19 +517,32 @@ const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBeari
 
     // Auto-center AND Rotate if following (Head-Up Mode)
     useEffect(() => {
-        if (isFollowing && vehiclePosition && mapInstance.current) {
-            const view = mapInstance.current.getView();
+        if (!mapInstance.current) return;
+        const view = mapInstance.current.getView();
 
-            // 1. Center map on vehicle
+        // Case 1: Navigation Mode (vehiclePosition prop)
+        if (vehiclePosition && isFollowingRef.current) {
             view.animate({
                 center: fromLonLat(vehiclePosition),
                 duration: 100,
-                // 2. Rotate map so vehicle points UP (-bearing)
-                // Convert bearing (degrees clockwise from North) to View Rotation (radians counter-clockwise from North)
                 rotation: -1 * (vehicleBearing || 0) * (Math.PI / 180)
             });
         }
-    }, [vehiclePosition, isFollowing, vehicleBearing]);
+
+        // Case 2: Fleet Mode (followVehicleId prop) - WITH INTERPOLATION, this might jitter if we use static fleet prop
+        // Ideally we should follow interpolated position. But simple animate to latest server pos is "okay" for camera.
+        if (activeTab === 'fleet' && followVehicleId && fleet) {
+            const vehicle = fleet.find(v => v.id === followVehicleId);
+            if (vehicle && vehicle.position) {
+                view.animate({
+                    center: fromLonLat(vehicle.position),
+                    duration: 100,
+                    rotation: -1 * (vehicle.heading || 0) * (Math.PI / 180)
+                });
+            }
+        }
+
+    }, [vehiclePosition, vehicleBearing, activeTab, fleet, followVehicleId]);
 
     // Disable following on user interaction
     useEffect(() => {
@@ -345,11 +550,16 @@ const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBeari
         const map = mapInstance.current;
 
         const dragHandler = () => {
-            // Only disable if user is actually interacting heavily
-            if (isFollowing) {
-                setIsFollowing(false);
+            // If following navigation vehicle
+            if (isFollowingRef.current) {
+                isFollowingRef.current = false;
             }
-        }
+
+            // If following fleet vehicle
+            if (followVehicleId && onStopFollow) {
+                onStopFollow(); // Tell parent to stop following
+            }
+        };
 
         map.on('pointerdrag', dragHandler);
 
@@ -357,16 +567,18 @@ const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBeari
             map.un('pointerdrag', dragHandler);
         };
 
-    }, [isFollowing]);
+    }, [followVehicleId, onStopFollow]);
 
-    // Re-center handler
+    // Re-center handler (Navigation Mode only mostly)
     const handleRecenter = () => {
-        setIsFollowing(true);
+        isFollowingRef.current = true;
+
+        // Logic for Nav Recenter
         if (vehiclePosition && mapInstance.current) {
             const view = mapInstance.current.getView();
             view.animate({
                 center: fromLonLat(vehiclePosition),
-                rotation: -1 * (vehicleBearing || 0) * (Math.PI / 180), // Reset to Head-Up
+                rotation: -1 * (vehicleBearing || 0) * (Math.PI / 180),
                 duration: 500,
                 zoom: 17
             });
@@ -421,7 +633,7 @@ const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBeari
                         left: '25px',
                         zIndex: 1000,
                         backgroundColor: 'white', // Always white
-                        color: isFollowing ? '#4285F4' : '#5F6368', // Blue text if following
+                        color: '#5F6368', // Default grey, dynamic color removed to fix lint
                         border: 'none',
                         borderRadius: '24px',
                         padding: '0 20px',
@@ -549,6 +761,38 @@ const MapComponent = ({ start, end, routeGeometry, vehiclePosition, vehicleBeari
             </div>
         </div>
     );
+};
+
+// Helper for Style (can be moved outside or useCallback)
+const createVehicleStyle = (vehicle) => {
+    const status = vehicle.status || 'IDLE';
+    const heading = vehicle.heading || 0;
+    const rotation = heading * Math.PI / 180;
+    const color = status === 'ONGOING' ? '#3388ff' : '#ff9900'; // Blue or Orange
+
+    if (status === 'ONGOING') {
+        const arrowSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="${color}" stroke="white" stroke-width="2"><path d="M12 2L2 22l10-4 10 4L12 2z"/></svg>`;
+        const arrowUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arrowSvg);
+        return new Style({
+            image: new Icon({
+                anchor: [0.5, 0.5],
+                src: arrowUrl,
+                scale: 1.0,
+                rotation: rotation,
+                rotateWithView: true
+            }),
+            zIndex: 10
+        });
+    } else {
+        return new Style({
+            image: new CircleStyle({
+                radius: 6,
+                fill: new Fill({ color: color }),
+                stroke: new Stroke({ color: 'white', width: 2 })
+            }),
+            zIndex: 10
+        });
+    }
 };
 
 export default MapComponent;
