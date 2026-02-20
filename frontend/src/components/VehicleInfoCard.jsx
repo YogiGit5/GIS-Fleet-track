@@ -1,10 +1,10 @@
 import React from 'react';
 
 const VEHICLE_ICONS = {
-    bike: '🏍️',
-    car: '🚗',
+    bike: '🚛',
+    car: '🚛',
     truck: '🚛',
-    container: '📦',
+    container: '🚛',
 };
 
 const STATUS_COLORS = {
@@ -33,15 +33,15 @@ const VehicleInfoCard = ({ vehicle, onClose, onFollow, isFollowing }) => {
         <div style={{
             position: 'fixed',
             top: '80px',
-            left: '360px',
-            width: '300px',
+            right: '20px',
+            width: '320px',
             background: 'white',
             borderRadius: '16px',
-            boxShadow: '0 8px 30px rgba(0,0,0,0.18)',
-            zIndex: 1100,
+            boxShadow: '0 8px 30px rgba(0,0,0,0.25)',
+            zIndex: 1200,
             overflow: 'hidden',
             fontFamily: 'Roboto, Arial, sans-serif',
-            animation: 'slideInCard 0.25s ease-out',
+            animation: 'slideInCardRight 0.25s ease-out',
         }}>
             {/* Header */}
             <div style={{

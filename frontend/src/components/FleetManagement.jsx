@@ -11,8 +11,8 @@ const FleetManagement = ({ isActive, onUpdateMap }) => {
     // Initialize WebSocket Connection
     useEffect(() => {
         const client = new Client({
-            brokerURL: 'ws://localhost:8081/ws-fleet',
-            reconnectDelay: 5000,
+            brokerURL: 'ws://127.0.0.1:8081/ws-fleet',
+            reconnectDelay: 2000,
             heartbeatIncoming: 4000,
             heartbeatOutgoing: 4000,
             onConnect: () => {
@@ -22,8 +22,8 @@ const FleetManagement = ({ isActive, onUpdateMap }) => {
                     setFleet(data);
                 });
 
-                // 1. Initial Fetch (Fix for Auto-Loading)
-                fetch('http://localhost:8081/api/fleet/vehicles')
+                // 1. Initial Fetch to Sync State
+                fetch('http://127.0.0.1:8081/api/fleet/vehicles')
                     .then(res => res.json())
                     .then(data => {
                         console.log("Initial Fleet Load:", data.length);
@@ -32,10 +32,17 @@ const FleetManagement = ({ isActive, onUpdateMap }) => {
                         } else {
                             // If empty, trigger start
                             console.log("Fleet empty, triggering start...");
-                            fetch('http://localhost:8081/api/fleet/start', { method: 'POST' });
+                            fetch('http://127.0.0.1:8081/api/fleet/start', { method: 'POST' });
                         }
                     })
                     .catch(e => console.error("Failed to load fleet:", e));
+            },
+            onStompError: (frame) => {
+                console.error('Broker reported error: ' + frame.headers['message']);
+                console.error('Additional details: ' + frame.body);
+            },
+            onWebSocketError: (error) => {
+                console.error('WebSocket connection error:', error);
             },
             onDisconnect: () => console.log('Disconnected from Fleet WebSocket'),
         });
@@ -47,12 +54,12 @@ const FleetManagement = ({ isActive, onUpdateMap }) => {
     }, []);
 
     const handleStop = () => {
-        fetch('http://localhost:8081/api/fleet/stop', { method: 'POST' })
+        fetch('http://127.0.0.1:8081/api/fleet/stop', { method: 'POST' })
             .catch(err => console.error("Failed to stop", err));
     };
 
     const handleReset = () => {
-        fetch('http://localhost:8081/api/fleet/reset', { method: 'POST' })
+        fetch('http://127.0.0.1:8081/api/fleet/reset', { method: 'POST' })
             .catch(err => console.error("Failed to reset", err));
     };
 

@@ -170,11 +170,11 @@ public class VehicleSimulationService {
 
     private void generateRandomFleet(int count) {
         Random random = new Random();
-        // Fixed vehicle types for a realistic Rapido-style fleet
+        // All trucks — Rapido fleet manager style
         String[][] vehicleTypes = {
-                { "bike", "RR-01" }, { "bike", "RR-02" }, { "bike", "RR-03" },
-                { "car", "RC-01" }, { "car", "RC-02" },
-                { "truck", "RT-01" }, { "bike", "RR-04" }
+                { "truck", "TRK-01" }, { "truck", "TRK-02" }, { "truck", "TRK-03" },
+                { "truck", "TRK-04" }, { "truck", "TRK-05" },
+                { "truck", "TRK-06" }, { "truck", "TRK-07" }
         };
 
         for (int i = 0; i < count; i++) {

@@ -21,6 +21,7 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
     const onMapClickRef = useRef({ onMapClick, onMarkerDragEnd, onVehicleSelect });
     const translateInteraction = useRef(null);
     const isFollowingRef = useRef(false); // Use ref for event handlers to avoid stale closures
+    const followVehicleIdRef = useRef(null); // Tracks followed vehicle ID inside rAF loop
 
     // Interpolation State
     const vehicleStates = useRef({});
@@ -33,6 +34,11 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
     useEffect(() => {
         onMapClickRef.current = { onMapClick, onMarkerDragEnd, onVehicleSelect };
     }, [onMapClick, onMarkerDragEnd, onVehicleSelect]);
+
+    // Keep followVehicleIdRef in sync with prop
+    useEffect(() => {
+        followVehicleIdRef.current = followVehicleId;
+    }, [followVehicleId]);
 
     // 1. Initialize Map (Run Once)
     useEffect(() => {
@@ -455,6 +461,11 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
                 // Update Halo if exists
                 const halo = source.getFeatureById(`halo-${id}`);
                 if (halo) halo.setGeometry(new Point(currentPos));
+
+                // Recenter map if this is the followed vehicle
+                if (id === followVehicleIdRef.current && mapInstance.current) {
+                    mapInstance.current.getView().setCenter(currentPos);
+                }
             });
 
             animationFrameId.current = requestAnimationFrame(animate);
@@ -466,6 +477,22 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
             if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
         };
     }, [activeTab]);
+
+    // 4. Immediate fly-to when follow starts
+    useEffect(() => {
+        if (!followVehicleId || !mapInstance.current) return;
+        // Find the vehicle's current feature position
+        const source = vectorSource.current;
+        const feature = source.getFeatureById(followVehicleId);
+        if (feature) {
+            const coords = feature.getGeometry().getCoordinates();
+            mapInstance.current.getView().animate({
+                center: coords,
+                zoom: 17,
+                duration: 600,
+            });
+        }
+    }, [followVehicleId]);
 
     // 3. Handle Search Location (FlyTo + Marker)
     useEffect(() => {
@@ -768,31 +795,44 @@ const createVehicleStyle = (vehicle) => {
     const status = vehicle.status || 'IDLE';
     const heading = vehicle.heading || 0;
     const rotation = heading * Math.PI / 180;
-    const color = status === 'ONGOING' ? '#3388ff' : '#ff9900'; // Blue or Orange
 
-    if (status === 'ONGOING') {
-        const arrowSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="${color}" stroke="white" stroke-width="2"><path d="M12 2L2 22l10-4 10 4L12 2z"/></svg>`;
-        const arrowUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arrowSvg);
-        return new Style({
-            image: new Icon({
-                anchor: [0.5, 0.5],
-                src: arrowUrl,
-                scale: 1.0,
-                rotation: rotation,
-                rotateWithView: true
-            }),
-            zIndex: 10
-        });
-    } else {
-        return new Style({
-            image: new CircleStyle({
-                radius: 6,
-                fill: new Fill({ color: color }),
-                stroke: new Stroke({ color: 'white', width: 2 })
-            }),
-            zIndex: 10
-        });
-    }
+    // Blue for moving, Orange for idle
+    const color = status === 'ONGOING' ? '#1a73e8' : '#FF9800';
+    const outline = status === 'ONGOING' ? '#0d47a1' : '#E65100';
+
+    // Truck SVG (side-view, pointing right = 0°)
+    const truckSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="24" viewBox="0 0 36 24">
+      <!-- Trailer body -->
+      <rect x="0" y="4" width="22" height="14" rx="2" fill="${color}" stroke="${outline}" stroke-width="1.5"/>
+      <!-- Cab -->
+      <rect x="22" y="6" width="10" height="12" rx="2" fill="${color}" stroke="${outline}" stroke-width="1.5"/>
+      <!-- Windshield -->
+      <rect x="28" y="7.5" width="3.5" height="5" rx="1" fill="rgba(255,255,255,0.7)"/>
+      <!-- Wheels -->
+      <circle cx="6"  cy="19" r="3" fill="${outline}"/>
+      <circle cx="16" cy="19" r="3" fill="${outline}"/>
+      <circle cx="28" cy="19" r="3" fill="${outline}"/>
+      <!-- Wheel hubs -->
+      <circle cx="6"  cy="19" r="1.2" fill="white"/>
+      <circle cx="16" cy="19" r="1.2" fill="white"/>
+      <circle cx="28" cy="19" r="1.2" fill="white"/>
+    </svg>`;
+
+    const truckUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(truckSvg);
+
+    return new Style({
+        image: new Icon({
+            anchor: [0.5, 0.5],
+            anchorXUnits: 'fraction',
+            anchorYUnits: 'fraction',
+            src: truckUrl,
+            scale: 1.1,
+            rotation: rotation,
+            rotateWithView: true,
+        }),
+        zIndex: 10
+    });
 };
+
 
 export default MapComponent;
