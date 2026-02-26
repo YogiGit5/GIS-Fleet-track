@@ -300,7 +300,7 @@ const RouteNavigation = ({ isActive, onUpdateMap, userLocation }) => {
                         )}
                         {vehicle?.finished && (
                             <button
-                                onClick={() => { setVehicle(null); setRoute(null); setRouteInfo(null); setPoints([]); }}
+                                onClick={() => { setVehicle(null); setRoute(null); setRouteInfo(null); setPoints([]); window.location.reload(); }}
                                 style={{
                                     margin: 0,
                                     padding: '12px 24px',

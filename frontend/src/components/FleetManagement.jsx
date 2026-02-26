@@ -120,16 +120,15 @@ const FleetManagement = ({ isActive, onUpdateMap }) => {
         setFollowedVehicleId(id);
 
         // User Requirement: "after clicking follow vehicle has to be moved"
-        // So we trigger dispatch here if it's selected
+        // Trigger dispatch to POI
         const v = fleet.find(v => v.id === id);
         if (v) {
-            // Defined coords here to avoid issues with impure calls during handler definition?
-            // Actually Math.random is fine in handlers, but let's be safe.
-            const lat = 12.90 + Math.random() * (13.05 - 12.90);
-            const lon = 77.50 + Math.random() * (77.70 - 77.50);
-            handleDispatch(id, lat, lon);
+            fetch(`http://127.0.0.1:8081/api/fleet/dispatch/${id}/poi`, { method: 'POST' })
+                .then(res => res.text())
+                .then(msg => console.log(msg))
+                .catch(err => console.error("Dispatch POI Failed", err));
         }
-    }, [fleet, handleDispatch]);
+    }, [fleet]);
 
     const handleVehicleClick = (vehicle) => {
         handleVehicleSelect(vehicle);

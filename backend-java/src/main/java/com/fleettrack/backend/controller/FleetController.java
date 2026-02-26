@@ -43,6 +43,13 @@ public class FleetController {
         return "Vehicle dispatched";
     }
 
+    @PostMapping("/dispatch/{vehicleId}/poi")
+    public String dispatchVehicleToPOI(
+            @org.springframework.web.bind.annotation.PathVariable String vehicleId) {
+        simulationService.dispatchToPOI(vehicleId);
+        return "Vehicle dispatched to POI";
+    }
+
     @org.springframework.web.bind.annotation.GetMapping("/vehicles")
     public java.util.List<java.util.Map<String, Object>> getFleetVehicles() {
         return simulationService.getAllVehicles();

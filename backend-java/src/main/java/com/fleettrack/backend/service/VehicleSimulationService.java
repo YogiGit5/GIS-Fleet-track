@@ -71,12 +71,52 @@ public class VehicleSimulationService {
             state.currentPosition = state.path.get(0);
             state.status = "ONGOING";
             state.finished = false;
+            // Clear destination name if manual dispatch (not POI)
+            state.destinationName = null;
+            state.destinationCoords = null;
 
             // Broadcast update immediately?
             // The scheduled task will pick it up next second.
 
         } catch (Exception e) {
             System.err.println("Failed to dispatch vehicle: " + e.getMessage());
+        }
+    }
+
+    public void dispatchToPOI(String vehicleId) {
+        VehicleState state = fleetVehicles.get(vehicleId);
+        if (state == null)
+            return;
+
+        Random random = new Random();
+        String[] poi = BANGALORE_POIS[random.nextInt(BANGALORE_POIS.length)];
+        String name = poi[0];
+        double destLat = Double.parseDouble(poi[1]);
+        double destLon = Double.parseDouble(poi[2]);
+
+        // Current Pos
+        List<Double> currentPos = state.currentPosition; // [lon, lat]
+
+        // Call OSRM
+        List<Double> start = currentPos;
+        List<Double> end = Arrays.asList(destLon, destLat);
+
+        try {
+            var routeResponse = osrmService.getRoute(start, end, state.type);
+
+            // Update State
+            state.path = extractCoordinates(routeResponse.geometry());
+            state.totalDistance = routeResponse.distance();
+            state.startTime = System.currentTimeMillis();
+            state.remainingDistance = state.totalDistance;
+            state.currentPosition = state.path.get(0);
+            state.status = "ONGOING";
+            state.finished = false;
+            state.destinationName = name;
+            state.destinationCoords = Arrays.asList(destLon, destLat); // [lon, lat] for Mapbox/OL
+
+        } catch (Exception e) {
+            System.err.println("Failed to dispatch vehicle to POI: " + e.getMessage());
         }
     }
 
@@ -146,7 +186,6 @@ public class VehicleSimulationService {
 
     // Realistic Bangalore road waypoints for initial routes
     private static final double[][] BANGALORE_WAYPOINTS = {
-            { 12.9716, 77.5946 }, // MG Road
             { 12.9352, 77.6245 }, // Koramangala
             { 12.9698, 77.7499 }, // Whitefield
             { 13.0358, 77.5970 }, // Hebbal
@@ -156,6 +195,19 @@ public class VehicleSimulationService {
             { 12.9279, 77.5539 }, // Jayanagar
             { 13.0297, 77.6848 }, // KR Puram
             { 12.9542, 77.4908 }, // Kengeri
+    };
+
+    private static final String[][] BANGALORE_POIS = {
+            { "Orion Mall", "13.0110", "77.5550" },
+            { "Phoenix Marketcity", "12.9968", "77.6953" },
+            { "MG Road Metro", "12.9756", "77.6067" },
+            { "Indiranagar Metro", "12.9783", "77.6385" },
+            { "Forum Mall Koramangala", "12.9344", "77.6111" },
+            { "Lalbagh Botanical Garden", "12.9507", "77.5844" },
+            { "Cubbon Park", "12.9779", "77.5952" },
+            { "Bangalore Palace", "12.9988", "77.5921" },
+            { "UB City", "12.9716", "77.5961" },
+            { "Commercial Street", "12.9822", "77.6083" }
     };
 
     private static final String[][] DRIVER_DATA = {
@@ -266,6 +318,13 @@ public class VehicleSimulationService {
                     : state.heading;
             vehicleData.put("heading", currentHeading);
 
+            if (state.destinationName != null && state.destinationCoords != null) {
+                Map<String, Object> dest = new HashMap<>();
+                dest.put("name", state.destinationName);
+                dest.put("position", state.destinationCoords);
+                vehicleData.put("destination", dest);
+            }
+
             // Driver info
             Map<String, String> driverInfo = new HashMap<>();
             driverInfo.put("name", state.driverName != null ? state.driverName : "Unknown");
@@ -359,11 +418,11 @@ public class VehicleSimulationService {
 
     private double getSpeed(String type) {
         return switch (type) {
-            case "car" -> 100.0 * 1000 / 3600;
-            case "truck" -> 60.0 * 1000 / 3600;
-            case "container" -> 40.0 * 1000 / 3600;
-            case "bike" -> 30.0 * 1000 / 3600;
-            default -> 100.0 * 1000 / 3600;
+            case "car" -> 40.0 * 1000 / 3600;
+            case "truck" -> 30.0 * 1000 / 3600;
+            case "container" -> 20.0 * 1000 / 3600;
+            case "bike" -> 50.0 * 1000 / 3600;
+            default -> 30.0 * 1000 / 3600;
         };
     }
 
@@ -440,6 +499,8 @@ public class VehicleSimulationService {
         Double remainingDistance;
         boolean finished = false;
         double heading = 0.0;
+        String destinationName = null;
+        List<Double> destinationCoords = null;
         // Driver info
         String driverName;
         String driverPhone;

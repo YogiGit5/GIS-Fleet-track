@@ -57,6 +57,8 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
 
                     if (type === 'route-traveled') return new Style({ stroke: new Stroke({ color: '#FF9800', width: 4 }) }); // Orange for traveled
 
+                    if (type === 'route-fleet') return new Style({ stroke: new Stroke({ color: '#9C27B0', width: 4, lineDash: [10, 10] }), zIndex: 1 }); // Purple dashed line for POI routes
+
                     if (type === 'start') {
                         // Blue Circle with white border (Google Maps "My Location" style)
                         return new Style({
@@ -79,8 +81,8 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
                         });
                     }
 
-                    if (type === 'end') {
-                        // Red Pin. Using a Data URI for a standard red pin shape.
+                    if (type === 'end' || type === 'dest-flag') {
+                        // Red Pin/Flag. Using a Data URI for a standard red pin shape.
                         const pinSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#EA4335"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>';
                         const pinUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(pinSvg);
                         return new Style({
@@ -88,7 +90,8 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
                                 anchor: [0.5, 1], // Bottom center
                                 src: pinUrl,
                                 scale: 1.5
-                            })
+                            }),
+                            zIndex: 10
                         });
                     }
 
@@ -292,6 +295,12 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
                 const haloId = `halo-${vehicle.id}`;
                 let haloFeature = source.getFeatureById(haloId);
 
+                // Handle POI Route and Destination Flag
+                const routeId = `route-fleet-${vehicle.id}`;
+                const destFlagId = `dest-flag-${vehicle.id}`;
+                let routeFeature = source.getFeatureById(routeId);
+                let destFlagFeature = source.getFeatureById(destFlagId);
+
                 if (vehicle.id === followVehicleId) {
                     if (!haloFeature) {
                         haloFeature = new Feature({
@@ -309,8 +318,41 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
                         }));
                         source.addFeature(haloFeature);
                     }
+
+                    // Render POI Destination Flag and Route Line
+                    if (vehicle.destination && vehicle.route && vehicle.route.length > 0) {
+                        const routeCoords = vehicle.route.map(p => fromLonLat(p));
+                        if (!routeFeature) {
+                            routeFeature = new Feature({
+                                geometry: new LineString(routeCoords),
+                                type: 'route-fleet'
+                            });
+                            routeFeature.setId(routeId);
+                            source.addFeature(routeFeature);
+                        } else {
+                            routeFeature.getGeometry().setCoordinates(routeCoords);
+                        }
+
+                        const destCoords = fromLonLat(vehicle.destination.position);
+                        if (!destFlagFeature) {
+                            destFlagFeature = new Feature({
+                                geometry: new Point(destCoords),
+                                type: 'dest-flag'
+                            });
+                            destFlagFeature.setId(destFlagId);
+                            source.addFeature(destFlagFeature);
+                        } else {
+                            destFlagFeature.getGeometry().setCoordinates(destCoords);
+                        }
+                    } else {
+                        if (routeFeature) source.removeFeature(routeFeature);
+                        if (destFlagFeature) source.removeFeature(destFlagFeature);
+                    }
+
                 } else {
                     if (haloFeature) source.removeFeature(haloFeature);
+                    if (routeFeature) source.removeFeature(routeFeature);
+                    if (destFlagFeature) source.removeFeature(destFlagFeature);
                 }
             });
 
@@ -322,6 +364,10 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
                     if (f) source.removeFeature(f);
                     const h = source.getFeatureById(`halo-${id}`);
                     if (h) source.removeFeature(h);
+                    const r = source.getFeatureById(`route-fleet-${id}`);
+                    if (r) source.removeFeature(r);
+                    const d = source.getFeatureById(`dest-flag-${id}`);
+                    if (d) source.removeFeature(d);
                 }
             });
 
@@ -329,7 +375,7 @@ const MapComponent = ({ activeTab, fleet, start, end, routeGeometry, vehiclePosi
             // Not Fleet Mode: Clear fleet features
             source.getFeatures().forEach(f => {
                 const t = f.get('type');
-                if (t === 'vehicle-fleet' || t === 'halo' || t === 'route-fleet') {
+                if (t === 'vehicle-fleet' || t === 'halo' || t === 'route-fleet' || t === 'dest-flag') {
                     source.removeFeature(f);
                 }
             });
